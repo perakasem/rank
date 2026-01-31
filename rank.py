@@ -2,9 +2,11 @@
 from typing import Any, Optional, Callable
 from normalize import *
 
+
 class GlobalBeliRank:
     # bradley-terry rank aggregation over multiple individual beli rankings
     pass
+
 
 class IndividualBeliRanking:
     """Beli Ranking Algorithm Reimplementation"""
@@ -41,7 +43,7 @@ class IndividualBeliRanking:
     def insert(self, new_item: Any, tier: int):
         """Insert new item into appropriate tiered binrank"""
         worker = self.items[tier]
-        worker.binary_insert(new_item, 0, len(self.items[tier].items) - 1)
+        worker.binary_insert(new_item)
         self.normalize(self.scale)
 
     def remove(self, del_item: Any):
@@ -55,36 +57,36 @@ class IndividualBeliRanking:
         # if across tiers: remove from binrank, direct insert into new tier binrank
         pass
 
+
 class BucketedBinaryRanking:
     """Bucketed Binary Ranked List"""
 
     def __init__(self, items: list[list[Any]] = None):
         self.items = items or []
 
-    def binary_insert(self, new_item, low: int, high: int) -> None:
+    def binary_insert(self, new_item) -> None:
         """
         :param self:
         :param new_item:
-        :param low: index of lowest-ranked in sublist
-        :param high: index of highest-ranked bucket in sublist
         """
-        assert high < len(self.items)
+        low = 0
+        high = len(self.items) - 1
 
-        mid = (high + low) // 2
-        c = self.compare(new_item, self.items[mid][0])
-        if c == 1:
-            # new_item is ranked higher than mid
-            if mid == low:
-                self.items.insert(mid + 1, [new_item])
+        while low <= high:
+            mid = (low + high) // 2
+            c = self.compare(new_item, self.items[mid][0])
+            if c == 0:
+                self.items[mid].append(new_item)
+                return
+            elif c == 1:
+                # Better than mid
+                low = mid + 1
             else:
-                self.binary_insert(new_item, mid + 1, high)
-        elif c == -1:
-            if mid == high:
-                self.items.insert(mid, [new_item])
-            else:
-                self.binary_insert(new_item, low, mid - 1)
-        elif c == 0:
-            self.items[mid].append(new_item)
+                # Worse than mid
+                high = mid - 1
+
+        # If we exit the loop low is the correct insertion index
+        self.items.insert(low, [new_item])
 
         # TODO: implement history tracing
 
@@ -103,7 +105,6 @@ class BucketedBinaryRanking:
 
     def compare(self, new_item: Any, comparator: Any) -> Optional[int]:
         """
-
         :param new_item: item to be ranked
         :param comparator: item in the rank list to compare against
         :return: integers -1, 0, or 1 denoting ranking
