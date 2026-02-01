@@ -69,14 +69,21 @@ class IndividualBeliRanking:
         self.normalize(self.scale)
 
     def rerank(self, item: Any, new_position: int):
+        """Move item to new linear position in tiered rank list
+        :param item: item to be moved
+        :param new_position: new linear position in beli rank list
+        """
         new_tier, new_tier_position = self._get_tier_position(new_position)
 
         current_tier, current_bucket = self.registry[item]
 
         # if within same tier: bucketedbinaryranking.moveitem
         if current_tier == new_tier:
-            # bucketedbinaryranking.moveitem
-            pass
+            result = self.items[new_tier].move_item(item, current_bucket, new_tier_position)
+            if result:
+                self.registry[item] = [new_tier, result.bucket_idx]
+                for shifted_item, idx in result.shifted:
+                    self.registry[shifted_item][1] = idx
         else:
             # if across tiers: remove from bucketedrank, direct insert into new tier bucketedrank
             result = self.items[current_tier].remove(item, current_bucket)
@@ -90,6 +97,8 @@ class IndividualBeliRanking:
             self.registry[item] = [new_tier, result.bucket_idx]
             for shifted_item, idx in result.shifted:
                 self.registry[shifted_item][1] = idx
+
+        self.normalize(self.scale)
 
     def _get_tier_position(self, position: int) -> tuple[int, int]:
         """Get tier for new item based on linear position in rank list"""
@@ -178,13 +187,36 @@ class BucketedRanking:
             self._length += 1
             return UpdateResult(bucket_idx=bucket_idx + 1, shifted=shifted)
 
-    def move_item(self, item: Any, new_position: int) -> UpdateResult | None:
-        # bubble elements between previous and new position
-        # if added into middle of bucket, split bucket
-        # if added between buckets, remove from previous bucket and create new bucket
+    def move_item(self, item: Any, bucket: int, new_position: int) -> UpdateResult | None:
+        """
+        :param item: item to be moved
+        :param bucket: current bucket index of the item"""
 
-        # updateresult: shift between item position and new position, inclusive
-        pass
+        if bucket >= len(self.items):
+            return None
+
+        if item not in self.items[bucket]:
+            return None
+
+        # get current linear position of item
+        old_linear_position = self._get_linear_position(item, bucket)
+
+        if old_linear_position == new_position:
+            return UpdateResult(bucket_idx=bucket, shifted=[])
+
+        # remove item from current position, then re-insert at adjusted new position
+        self.remove(item, bucket)
+        adjusted_position = new_position if new_position < old_linear_position else new_position - 1
+        self.direct_insert(item, adjusted_position)
+
+        new_bucket, _ = self._get_coords(adjusted_position)
+        start = min(bucket, new_bucket)
+        shifted = [
+            (itm, i)
+            for i in range(start, len(self.items))
+            for itm in self.items[i]
+        ]
+        return UpdateResult(bucket_idx=new_bucket, shifted=shifted)
 
     def remove(self, del_item: Any, bucket: int) -> UpdateResult | None:
         """
@@ -227,7 +259,10 @@ class BucketedRanking:
         return None
 
     def _get_coords(self, linear_index) -> tuple[int, int]:
-        """Find index of item in bucketed ranking from linear index"""
+        """Find index of item in bucketed ranking
+        :param linear_index: linear index in rank list
+        :return: (bucket index, index within bucket)
+        """
         current_idx = linear_index
         for bucket_idx, bucket in enumerate(self.items):
             bucket_len = len(bucket)
@@ -235,6 +270,12 @@ class BucketedRanking:
                 return bucket_idx, current_idx
             current_idx -= bucket_len
         raise IndexError("Linear index out of range")
+
+    def _get_linear_position(self, item: Any, bucket: int) -> int:
+        """Get linear position from bucket index and index within bucket"""
+        linear = sum(len(self.items[i]) for i in range(bucket))
+        linear += self.items[bucket].index(item)
+        return linear
 
     def _split_bucket(self, bucket_idx: int, split_idx: int):
         """Split a bucket into two at the specified index"""
