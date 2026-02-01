@@ -11,12 +11,12 @@ class UpdateResult:
     shifted: list[tuple[Any, int]]  # (item, new_bucket_idx) pairs
 
 
-class GlobalBeliRanking:
-    # bradley-terry rank aggregation over multiple individual beli rankings
+class GlobalTieredRanking:
+    # bradley-terry rank aggregation over multiple individual tiered rankings
     pass
 
 
-class IndividualBeliRanking:
+class IndividualTieredRanking:
     """Beli Ranking Algorithm"""
     def __init__(self, tiers: int, scale: int, normalize_fn: Callable, tier_thresholds: list[int] = None) -> None:
         """
@@ -71,7 +71,7 @@ class IndividualBeliRanking:
     def rerank(self, item: Any, new_position: int):
         """Move item to new linear position in tiered rank list
         :param item: item to be moved
-        :param new_position: new linear position in beli rank list
+        :param new_position: new linear position in tiered rank list
         """
         new_tier, new_tier_position = self._get_tier_position(new_position)
 
