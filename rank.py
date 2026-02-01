@@ -20,18 +20,17 @@ class IndividualBeliRanking:
         self.tiers: int = tiers
         self.scale: int = scale
         self.normalize_fn = normalize_fn
-        # add log-normal tier skew support
         self.tier_thresholds: list[int] = tier_thresholds or [i * (scale/tiers) for i in range(1, tiers+1)]
         self.history: str = ""
         self.items: dict[int, BucketedBinaryRanking] = {i: BucketedBinaryRanking() for i in range(1, tiers+1)}
-        self.registry: dict[Any, list[int]] = {} # [tier id, bucket id]
+        self.registry: dict[Any, list[int]] = {} # [tier id, bucket idx]
         self.scores: dict[Any, float] = {}
 
     def normalize(self, scale: int):
         """Cardinal scoring"""
         # linearize tiers, cdf to handle buckets
         self.normalize_fn(scale)
-        # update rankmap
+        # update self.scores
         pass
 
     def getrankbyitem(self):
@@ -42,14 +41,18 @@ class IndividualBeliRanking:
 
     def insert(self, new_item: Any, tier: int):
         """Insert new item into appropriate tiered binrank"""
+        # update registry tier
+        self.registry[new_item][0] = tier
+
         worker = self.items[tier]
-        worker.binary_insert(new_item)
+        worker.binary_insert(new_item, self.registry)
+
         self.normalize(self.scale)
 
     def remove(self, del_item: Any):
         """Remove item from appropriate tiered binrank"""
         for tier in self.items:
-            self.items[tier].remove(del_item)
+            self.items[tier].remove(del_item, self.registry)
         self.normalize(self.scale)
 
     def rerank(self):
@@ -64,7 +67,7 @@ class BucketedBinaryRanking:
     def __init__(self, items: list[list[Any]] = None):
         self.items = items or []
 
-    def binary_insert(self, new_item) -> None:
+    def binary_insert(self, new_item: Any, registry: Optional[dict]) -> int | None:
         """
         :param self:
         :param new_item:
@@ -77,6 +80,8 @@ class BucketedBinaryRanking:
             c = self.compare(new_item, self.items[mid][0])
             if c == 0:
                 self.items[mid].append(new_item)
+                if registry:
+                    registry[new_item][1] = mid
                 return
             elif c == 1:
                 # Better than mid
@@ -88,12 +93,18 @@ class BucketedBinaryRanking:
         # If we exit the loop low is the correct insertion index
         self.items.insert(low, [new_item])
 
+        if registry:
+            registry[new_item][1] = low
+            for i in range(low + 1, len(self.items)):
+                for item in self.items[i]:
+                    registry[item][1] = i
+
         # TODO: implement history tracing
 
-    def direct_insert(self, new_item: Any, position: int) -> None:
+    def direct_insert(self, new_item: Any, position: int, registry: Optional[dict]) -> None:
         pass
 
-    def remove(self, del_item: Any) -> None:
+    def remove(self, del_item: Any, registry: Optional[dict]) -> None:
         for bucket in self.items:
             for item in bucket:
                 if del_item == item:
