@@ -5,9 +5,9 @@ from normalize import *
 
 
 @dataclass
-class InsertResult:
+class UpdateResult:
     """Result of an insertion operation"""
-    bucket_idx: int
+    bucket_idx: int | None
     shifted: list[tuple[Any, int]]  # (item, new_bucket_idx) pairs
 
 
@@ -58,11 +58,16 @@ class IndividualBeliRanking:
 
         self.normalize(self.scale)
 
-
     def remove(self, del_item: Any):
         """Remove item from appropriate tiered binrank"""
-        for tier in self.items:
-            self.items[tier].remove(del_item, self.registry)
+        tier, bucket = self.registry[del_item]
+        result = self.items[tier].remove(del_item, bucket)
+
+        if result:
+            del self.registry[del_item]
+            for item, idx in result.shifted:
+                self.registry[item][1] = idx
+
         self.normalize(self.scale)
 
     def rerank(self):
@@ -77,7 +82,7 @@ class BucketedRanking:
     def __init__(self, items: list[list[Any]] = None):
         self.items = items or []
 
-    def binary_insert(self, new_item: Any) -> InsertResult:
+    def binary_insert(self, new_item: Any) -> UpdateResult:
         """
         :param self:
         :param new_item:
@@ -90,7 +95,7 @@ class BucketedRanking:
             c = self.compare(new_item, self.items[mid][0])
             if c == 0:
                 self.items[mid].append(new_item)
-                return InsertResult(bucket_idx=mid, shifted=[])
+                return UpdateResult(bucket_idx=mid, shifted=[])
             elif c == 1:
                 # Better than mid
                 low = mid + 1
@@ -107,22 +112,32 @@ class BucketedRanking:
             for item in self.items[i]
         ]
 
-        return InsertResult(bucket_idx=low, shifted=shifted)
+        return UpdateResult(bucket_idx=low, shifted=shifted)
 
         # TODO: implement history tracing
 
     def direct_insert(self, new_item: Any, position: int, registry: Optional[dict]) -> None:
         pass
 
-    def remove(self, del_item: Any, registry: Optional[dict]) -> None:
-        for bucket in self.items:
-            for item in bucket:
-                if del_item == item:
-                    bucket.remove(item)
-                    if not bucket:
-                        self.items.remove(bucket)
-                    return
-        # re-implement using rankmap for efficiency
+    def remove(self, del_item: Any, bucket: int) -> UpdateResult | None:
+        if bucket >= len(self.items):
+            return None
+
+        if del_item not in self.items[bucket]:
+            return None
+
+        self.items[bucket].remove(del_item)
+
+        if not self.items[bucket]:
+            self.items.pop(bucket)
+            shifted = [
+                (item, i)
+                for i in range(bucket, len(self.items))
+                for item in self.items[i]
+            ]
+            return UpdateResult(bucket_idx=None, shifted=shifted)
+
+        return UpdateResult(bucket_idx=bucket, shifted=[])
 
     def compare(self, new_item: Any, comparator: Any) -> Optional[int]:
         """
