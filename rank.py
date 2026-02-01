@@ -1,9 +1,17 @@
 """Tiered Ranker"""
 from typing import Any, Optional, Callable
+from dataclasses import dataclass
 from normalize import *
 
 
-class GlobalBeliRank:
+@dataclass
+class InsertResult:
+    """Result of an insertion operation"""
+    bucket_idx: int
+    shifted: list[tuple[Any, int]]  # (item, new_bucket_idx) pairs
+
+
+class GlobalBeliRanking:
     # bradley-terry rank aggregation over multiple individual beli rankings
     pass
 
@@ -22,7 +30,7 @@ class IndividualBeliRanking:
         self.normalize_fn = normalize_fn
         self.tier_thresholds: list[int] = tier_thresholds or [i * (scale/tiers) for i in range(1, tiers+1)]
         self.history: str = ""
-        self.items: dict[int, BucketedBinaryRanking] = {i: BucketedBinaryRanking() for i in range(1, tiers+1)}
+        self.items: dict[int, BucketedRanking] = {i: BucketedRanking() for i in range(1, tiers+1)}
         self.registry: dict[Any, list[int]] = {} # [tier id, bucket idx]
         self.scores: dict[Any, float] = {}
 
@@ -42,12 +50,14 @@ class IndividualBeliRanking:
     def insert(self, new_item: Any, tier: int):
         """Insert new item into appropriate tiered binrank"""
         # update registry tier
-        self.registry[new_item][0] = tier
+        result = self.items[tier].binary_insert(new_item, self.registry)
+        self.registry[new_item] = [tier, result.bucket_idx]
 
-        worker = self.items[tier]
-        worker.binary_insert(new_item, self.registry)
+        for item, idx in result.shifted:
+            self.registry[item][1] = idx
 
         self.normalize(self.scale)
+
 
     def remove(self, del_item: Any):
         """Remove item from appropriate tiered binrank"""
@@ -61,13 +71,13 @@ class IndividualBeliRanking:
         pass
 
 
-class BucketedBinaryRanking:
-    """Bucketed Binary Ranked List"""
+class BucketedRanking:
+    """Bucketed Ranked List"""
 
     def __init__(self, items: list[list[Any]] = None):
         self.items = items or []
 
-    def binary_insert(self, new_item: Any, registry: Optional[dict]) -> int | None:
+    def binary_insert(self, new_item: Any) -> InsertResult:
         """
         :param self:
         :param new_item:
@@ -80,9 +90,7 @@ class BucketedBinaryRanking:
             c = self.compare(new_item, self.items[mid][0])
             if c == 0:
                 self.items[mid].append(new_item)
-                if registry:
-                    registry[new_item][1] = mid
-                return
+                return InsertResult(bucket_idx=mid, shifted=[])
             elif c == 1:
                 # Better than mid
                 low = mid + 1
@@ -93,11 +101,13 @@ class BucketedBinaryRanking:
         # If we exit the loop low is the correct insertion index
         self.items.insert(low, [new_item])
 
-        if registry:
-            registry[new_item][1] = low
-            for i in range(low + 1, len(self.items)):
-                for item in self.items[i]:
-                    registry[item][1] = i
+        shifted = [
+            (item, i)
+            for i in range(low + 1, len(self.items))
+            for item in self.items[i]
+        ]
+
+        return InsertResult(bucket_idx=low, shifted=shifted)
 
         # TODO: implement history tracing
 
